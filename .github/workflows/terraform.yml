@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   validate-and-scan:
@@ -26,19 +27,33 @@ jobs:
       run:
         working-directory: infra
 
-    # Statische Access Keys
-    # todo: später mit OIDC implementieren
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    # Bad Practice mit stat. Access Keys, jetzt lieber über OIDC
+      # AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      # AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: us-east-1
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::004657932016:role/devsecops-deploy-role
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+        
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+      
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: Run TFLint
+        run: tflint
 
       - name: Terraform fmt
         run: terraform fmt -check -recursive
@@ -46,19 +61,23 @@ jobs:
       - name: Terraform init
         run: terraform init
 
-      # Syntax Validierung, so wie ein Linter
       - name: Terraform validate
         run: terraform validate
 
-      # Logische Validierung mit Checkov als Tool, um Security Concerns zu entdecken
       - name: Run Checkov
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: infra
           framework: terraform
+          output_format: sarif
           quiet: true
           soft_fail: false
           skip_check: CKV2_AWS_61,CKV2_AWS_62,CKV_AWS_144,CKV_AWS_145,CKV_AWS_18,CKV_AWS_260
+      
+      # - name: Run tfsec
+      #   uses: aquasecurity/tfsec-action@v1.0.3
+      #   with:
+      #     working_directory: infra
 
       - name: Terraform plan
         run: terraform plan -var-file=terraform.tfvars -out=tfplan
@@ -68,6 +87,13 @@ jobs:
         with:
           name: tfplan
           path: infra/tfplan
+
+      - name: Install Conftest
+        run: |
+          curl -L https://github.com/open-policy-agent/conftest/releases/download/v0.45.0/conftest_0.45.0_Linux_x86_64.tar.gz | tar xz
+          sudo mv conftest /usr/local/bin
+      - name: Run policy checks
+        run: conftest test infra
 
   deploy:
     name: Deploy to AWS
@@ -80,13 +106,22 @@ jobs:
         working-directory: infra
 
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      # AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      # AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: us-east-1
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::004657932016:role/devsecops-deploy-role
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+        
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
