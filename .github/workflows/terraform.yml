@@ -94,6 +94,20 @@ jobs:
          # sudo mv conftest /usr/local/bin
      # - name: Run policy checks
        # run: conftest test infra
+      
+      # Liste an allen Dependencies
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: ../sbom.cdx.json
+      
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
 
   deploy:
     name: Deploy to AWS
